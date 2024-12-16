@@ -10,7 +10,7 @@ import (
 )
 
 // Namespace used in fully-qualified metrics names.
-const namespace = "asynq"
+const namespace = "asynqasynq"
 
 // QueueMetricsCollector gathers queue metrics.
 // It implements prometheus.Collector interface.
