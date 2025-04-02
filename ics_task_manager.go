@@ -60,6 +60,18 @@ type IcsTaskConfig struct {
 	Opts  []Option
 }
 
+func NewIcsTaskConfig(icsEvent IcsEvent, task *Task, opts []Option) *IcsTaskConfig {
+	config := &IcsTaskConfig{
+		Event: icsEvent,
+		Task:  task,
+		Opts:  opts,
+	}
+
+	timeout := Timeout(config.deadlineTimeout())
+	config.Opts = append(config.Opts, timeout)
+	return config
+}
+
 func (c *IcsTaskConfig) hash() string {
 	h := sha256.New()
 	_, _ = h.Write([]byte(c.Task.Type()))
@@ -100,8 +112,8 @@ func (c *IcsTaskConfig) nextCronspec() string {
 }
 
 // Return sub of event EndDatetime and StartDatetime by seconds
-func (c *IcsTaskConfig) deadlineTimeout() float64 {
-	return c.Event.EndDatetime.Sub(c.Event.StartDatetime).Seconds()
+func (c *IcsTaskConfig) deadlineTimeout() time.Duration {
+	return time.Duration(c.Event.EndDatetime.Sub(c.Event.StartDatetime).Seconds())
 }
 
 func NewIcsTaskManager(opts IcsTaskManagerOpts) (*IcsTaskManager, error) {
@@ -201,8 +213,6 @@ func (mgr *IcsTaskManager) initialSync() error {
 func (mgr *IcsTaskManager) add(configs []*IcsTaskConfig) {
 	for _, c := range configs {
 		cronspec := c.nextCronspec()
-		timeout := Timeout(time.Duration(c.deadlineTimeout()) * time.Second)
-		c.Opts = append(c.Opts, timeout)
 		entryID, err := mgr.s.Register(cronspec, c.Task, c.Opts...)
 		if err != nil {
 			mgr.s.logger.Errorf("Failed to register periodic task: cronspec=%q task=%q err=%v",

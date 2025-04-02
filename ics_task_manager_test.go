@@ -260,3 +260,25 @@ func TestIcsTaskManager(t *testing.T) {
 		t.Errorf("Diff found in scheduler's registered entries: %s", diff)
 	}
 }
+
+func TestIcsTaskConfig(t *testing.T) {
+	// Note: In this test, we'll use task type as an ID for each config.
+	currentDT := time.Now().Round(time.Second)
+	nextDT := currentDT.AddDate(0, 0, 1)
+	nextDTDelta2 := currentDT.AddDate(0, 0, 2)
+
+	cfg := NewIcsTaskConfig(
+		IcsEvent{StartDatetime: nextDT, EndDatetime: nextDTDelta2},
+		NewTask("task1", nil),
+		[]Option{},
+	)
+	opts, _ := composeOptions(cfg.Opts...)
+	if opts.timeout != cfg.deadlineTimeout() {
+		t.Errorf(
+			"New task config timeout option (%x) not correct %x",
+			opts.timeout,
+			cfg.deadlineTimeout(),
+		)
+	}
+
+}
