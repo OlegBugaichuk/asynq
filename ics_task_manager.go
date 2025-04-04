@@ -213,6 +213,9 @@ func (mgr *IcsTaskManager) initialSync() error {
 func (mgr *IcsTaskManager) add(configs []*IcsTaskConfig) {
 	for _, c := range configs {
 		cronspec := c.nextCronspec()
+		if cronspec == "" {
+			continue
+		}
 		entryID, err := mgr.s.Register(cronspec, c.Task, c.Opts...)
 		if err != nil {
 			mgr.s.logger.Errorf("Failed to register periodic task: cronspec=%q task=%q err=%v",
