@@ -79,8 +79,6 @@ func (c *IcsTaskConfig) hash() string {
 	opts := stringifyOptions(c.Opts)
 	sort.Strings(opts)
 
-	_, _ = h.Write([]byte(c.Event.StartDatetime.String()))
-	_, _ = h.Write([]byte(c.Event.EndDatetime.String()))
 	if c.Event.RRule != nil {
 		_, _ = h.Write([]byte(c.Event.RRule.String()))
 	}
