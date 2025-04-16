@@ -111,7 +111,7 @@ func (c *IcsTaskConfig) nextCronspec() string {
 
 // Return sub of event EndDatetime and StartDatetime by seconds
 func (c *IcsTaskConfig) deadlineTimeout() time.Duration {
-	return time.Duration(c.Event.EndDatetime.Sub(c.Event.StartDatetime).Seconds())
+	return time.Duration(c.Event.EndDatetime.Sub(c.Event.StartDatetime).Seconds()) * time.Second
 }
 
 func NewIcsTaskManager(opts IcsTaskManagerOpts) (*IcsTaskManager, error) {
