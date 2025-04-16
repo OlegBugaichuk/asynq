@@ -23,7 +23,7 @@ type IcsTaskManager struct {
 	syncInterval time.Duration
 	done         chan (struct{})
 	wg           sync.WaitGroup
-	m            map[string]string // map[hash]entryID
+	m            map[string]IcsTaskConfigIdentities // map[hash]entryID
 }
 
 type IcsTaskManagerOpts struct {
@@ -58,6 +58,11 @@ type IcsTaskConfig struct {
 	Event IcsEvent
 	Task  *Task
 	Opts  []Option
+}
+
+type IcsTaskConfigIdentities struct {
+	entryID string
+	taskID  string
 }
 
 func NewIcsTaskConfig(icsEvent IcsEvent, task *Task, opts []Option) *IcsTaskConfig {
@@ -137,7 +142,7 @@ func NewIcsTaskManager(opts IcsTaskManagerOpts) (*IcsTaskManager, error) {
 		p:            opts.IcsTaskConfigProvider,
 		syncInterval: syncInterval,
 		done:         make(chan struct{}),
-		m:            make(map[string]string),
+		m:            make(map[string]IcsTaskConfigIdentities),
 	}, nil
 }
 
@@ -220,20 +225,35 @@ func (mgr *IcsTaskManager) add(configs []*IcsTaskConfig) {
 				cronspec, c.Task.Type(), err)
 			continue
 		}
-		mgr.m[c.hash()] = entryID
+		mgr.m[c.hash()] = IcsTaskConfigIdentities{entryID: entryID, taskID: ""}
+
+		for _, opt := range c.Opts {
+			switch opt.(type) {
+			case taskIDOption:
+				if identities, ok := mgr.m[c.hash()]; ok {
+					identities.taskID = opt.String()
+					mgr.m[c.hash()] = identities
+				}
+			default:
+				mgr.s.logger.Errorf("Task not set taskIdOption")
+			}
+		}
 		mgr.s.logger.Infof("Successfully registered periodic task: cronspec=%q task=%q, entryID=%s",
 			cronspec, c.Task.Type(), entryID)
 	}
 }
 
-func (mgr *IcsTaskManager) remove(removed map[string]string) {
-	for hash, entryID := range removed {
-		if err := mgr.s.Unregister(entryID); err != nil {
+func (mgr *IcsTaskManager) remove(removed map[string]IcsTaskConfigIdentities) {
+	for hash, identities := range removed {
+		if err := mgr.s.Unregister(identities.entryID); err != nil {
 			mgr.s.logger.Errorf("Failed to unregister periodic task: %v", err)
 			continue
 		}
+		//if err := mgr.s.rdb.PublishCancelation(identities.taskID); err != nil {
+		//	mgr.s.logger.Errorf("Failed to remove periodic task: %v", err)
+		//}
 		delete(mgr.m, hash)
-		mgr.s.logger.Infof("Successfully unregistered periodic task: entryID=%s", entryID)
+		mgr.s.logger.Infof("Successfully unregistered periodic task: entryID=%s", identities.entryID)
 	}
 }
 
@@ -258,12 +278,12 @@ func (mgr *IcsTaskManager) sync() {
 
 // diffRemoved diffs the incoming configs with the registered config and returns
 // a map containing hash and entryID of each config that was removed.
-func (mgr *IcsTaskManager) diffRemoved(configs []*IcsTaskConfig) map[string]string {
-	newConfigs := make(map[string]string)
+func (mgr *IcsTaskManager) diffRemoved(configs []*IcsTaskConfig) map[string]IcsTaskConfigIdentities {
+	newConfigs := make(map[string]IcsTaskConfigIdentities)
 	for _, c := range configs {
-		newConfigs[c.hash()] = "" // empty value since we don't have entryID yet
+		newConfigs[c.hash()] = IcsTaskConfigIdentities{} // empty value since we don't have entryID yet
 	}
-	removed := make(map[string]string)
+	removed := make(map[string]IcsTaskConfigIdentities)
 	for k, v := range mgr.m {
 		// test whether existing config is present in the incoming configs
 		if _, found := newConfigs[k]; !found {

@@ -212,10 +212,16 @@ func TestIcsTaskManager(t *testing.T) {
 		{
 			Event: IcsEvent{StartDatetime: nextDT, EndDatetime: nextDTDelta2},
 			Task:  NewTask("task1", nil),
+			Opts: []Option{
+				taskIDOption("123"),
+			},
 		},
 		{
 			Event: IcsEvent{StartDatetime: nextDT, EndDatetime: nextDTDelta2},
 			Task:  NewTask("task2", nil),
+			Opts: []Option{
+				taskIDOption("345"),
+			},
 		},
 	}
 	const syncInterval = 3 * time.Second
