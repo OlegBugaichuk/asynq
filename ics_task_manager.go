@@ -231,7 +231,7 @@ func (mgr *IcsTaskManager) add(configs []*IcsTaskConfig) {
 			switch opt.(type) {
 			case taskIDOption:
 				if identities, ok := mgr.m[c.hash()]; ok {
-					identities.taskID = opt.String()
+					identities.taskID = opt.Value().(string)
 					mgr.m[c.hash()] = identities
 				}
 			default:
