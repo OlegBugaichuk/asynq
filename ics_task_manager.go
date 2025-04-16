@@ -245,13 +245,20 @@ func (mgr *IcsTaskManager) add(configs []*IcsTaskConfig) {
 
 func (mgr *IcsTaskManager) remove(removed map[string]IcsTaskConfigIdentities) {
 	for hash, identities := range removed {
-		if err := mgr.s.Unregister(identities.entryID); err != nil {
-			mgr.s.logger.Errorf("Failed to unregister periodic task: %v", err)
+		cancelationErr := mgr.s.rdb.PublishCancelation(identities.taskID)
+		unregisterErr := mgr.s.Unregister(identities.entryID)
+
+		if unregisterErr != nil && cancelationErr != nil {
+			mgr.s.logger.Errorf(
+				"Unregister periodic task or cancelation err=%v %v : entryId:%s, taskId:%s",
+				unregisterErr,
+				cancelationErr,
+				identities.entryID,
+				identities.taskID,
+			)
 			continue
 		}
-		if err := mgr.s.rdb.PublishCancelation(identities.taskID); err != nil {
-			mgr.s.logger.Errorf("Failed to remove periodic task: %v", err)
-		}
+
 		delete(mgr.m, hash)
 		mgr.s.logger.Infof("Successfully unregistered periodic task: entryID=%s", identities.entryID)
 	}
