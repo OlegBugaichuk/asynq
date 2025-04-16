@@ -249,9 +249,9 @@ func (mgr *IcsTaskManager) remove(removed map[string]IcsTaskConfigIdentities) {
 			mgr.s.logger.Errorf("Failed to unregister periodic task: %v", err)
 			continue
 		}
-		//if err := mgr.s.rdb.PublishCancelation(identities.taskID); err != nil {
-		//	mgr.s.logger.Errorf("Failed to remove periodic task: %v", err)
-		//}
+		if err := mgr.s.rdb.PublishCancelation(identities.taskID); err != nil {
+			mgr.s.logger.Errorf("Failed to remove periodic task: %v", err)
+		}
 		delete(mgr.m, hash)
 		mgr.s.logger.Infof("Successfully unregistered periodic task: entryID=%s", identities.entryID)
 	}
