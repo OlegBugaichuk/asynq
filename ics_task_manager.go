@@ -3,6 +3,8 @@ package asynq
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/OlegBugaichuk/asynq/internal/base"
+	"github.com/OlegBugaichuk/asynq/internal/rdb"
 	"github.com/redis/go-redis/v9"
 	"github.com/teambition/rrule-go"
 	"sort"
@@ -19,6 +21,7 @@ type IcsTaskConfigProvider interface {
 
 type IcsTaskManager struct {
 	s            *Scheduler
+	queueName    string
 	p            IcsTaskConfigProvider
 	syncInterval time.Duration
 	done         chan (struct{})
@@ -29,6 +32,9 @@ type IcsTaskManager struct {
 type IcsTaskManagerOpts struct {
 	// Required: must be non nil
 	IcsTaskConfigProvider IcsTaskConfigProvider
+
+	// Required: must be not null, use in sync tasks
+	QueueName string
 
 	// Optional: if RedisUniversalClient is nil must be non nil
 	RedisConnOpt RedisConnOpt
@@ -139,6 +145,7 @@ func NewIcsTaskManager(opts IcsTaskManagerOpts) (*IcsTaskManager, error) {
 	}
 	return &IcsTaskManager{
 		s:            scheduler,
+		queueName:    opts.QueueName,
 		p:            opts.IcsTaskConfigProvider,
 		syncInterval: syncInterval,
 		done:         make(chan struct{}),
@@ -204,11 +211,48 @@ func (mgr *IcsTaskManager) Run() error {
 	return nil
 }
 
+func (mgr *IcsTaskManager) GetActiveTasksIDs(queueName string) []string {
+	if err := base.ValidateQueueName(queueName); err != nil {
+		mgr.s.logger.Errorf("Invalid queue name for sync active tasks: %v", err)
+		return []string{}
+	}
+	queueStats, err := mgr.s.rdb.CurrentStats(queueName)
+	if err != nil {
+		mgr.s.logger.Errorf("Invalid queue current stats for sync active tasks: %v", err)
+		return []string{}
+	}
+	tasks, err := mgr.s.rdb.ListActive(queueName, rdb.Pagination{Size: queueStats.Active, Page: 0})
+	var tasksIds []string
+	for _, task := range tasks {
+		tasksIds = append(tasksIds, task.Message.ID)
+	}
+	return tasksIds
+}
+
 func (mgr *IcsTaskManager) initialSync() error {
 	configs, err := mgr.p.GetConfigs()
 	if err != nil {
 		return fmt.Errorf("initial call to GetConfigs failed: %v", err)
 	}
+	activeTasksIds := mgr.GetActiveTasksIDs(mgr.queueName)
+	actualTasksIds := make(map[string]struct{})
+	for _, config := range configs {
+		for _, opt := range config.Opts {
+			switch opt.(type) {
+			case taskIDOption:
+				actualTasksIds[opt.Value().(string)] = struct{}{}
+				continue
+			}
+		}
+	}
+	for _, taskId := range activeTasksIds {
+		if _, ok := actualTasksIds[taskId]; !ok {
+			if err := mgr.s.rdb.PublishCancelation(taskId); err != nil {
+				mgr.s.logger.Errorf("Failed cancelation non actual task with id: %s, err: %v", taskId, err)
+			}
+		}
+	}
+
 	mgr.add(configs)
 	return nil
 }

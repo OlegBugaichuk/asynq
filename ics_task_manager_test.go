@@ -228,6 +228,7 @@ func TestIcsTaskManager(t *testing.T) {
 	provider := &FakeIcsConfigProvider{cfgs: cfgs}
 	mgr, err := NewIcsTaskManager(IcsTaskManagerOpts{
 		RedisConnOpt:          getRedisConnOpt(t),
+		QueueName:             "default",
 		IcsTaskConfigProvider: provider,
 		SyncInterval:          syncInterval,
 	})
