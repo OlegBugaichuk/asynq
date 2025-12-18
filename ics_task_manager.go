@@ -3,13 +3,14 @@ package asynq
 import (
 	"crypto/sha256"
 	"fmt"
+	"sort"
+	"sync"
+	"time"
+
 	"github.com/OlegBugaichuk/asynq/internal/base"
 	"github.com/OlegBugaichuk/asynq/internal/rdb"
 	"github.com/redis/go-redis/v9"
 	"github.com/teambition/rrule-go"
-	"sort"
-	"sync"
-	"time"
 )
 
 // IcsTaskConfigProvider provides configs for periodic tasks.
@@ -67,8 +68,9 @@ type IcsTaskConfig struct {
 }
 
 type IcsTaskConfigIdentities struct {
-	entryID string
-	taskID  string
+	entryID      string
+	taskID       string
+	nextCronspec string
 }
 
 func NewIcsTaskConfig(icsEvent IcsEvent, task *Task, opts []Option) *IcsTaskConfig {
@@ -269,7 +271,7 @@ func (mgr *IcsTaskManager) add(configs []*IcsTaskConfig) {
 				cronspec, c.Task.Type(), err)
 			continue
 		}
-		mgr.m[c.hash()] = IcsTaskConfigIdentities{entryID: entryID, taskID: ""}
+		mgr.m[c.hash()] = IcsTaskConfigIdentities{entryID: entryID, taskID: "", nextCronspec: cronspec}
 
 		for _, opt := range c.Opts {
 			switch opt.(type) {
@@ -308,6 +310,38 @@ func (mgr *IcsTaskManager) remove(removed map[string]IcsTaskConfigIdentities) {
 	}
 }
 
+func (mgr *IcsTaskManager) update(configs []*IcsTaskConfig) {
+	for _, c := range configs {
+		if identities, found := mgr.m[c.hash()]; found {
+			unregisterErr := mgr.s.Unregister(identities.entryID)
+			if unregisterErr != nil {
+				mgr.s.logger.Errorf(
+					"Unregister periodic task err=%v : entryId:%s, taskId:%s",
+					unregisterErr,
+					identities.entryID,
+					identities.taskID,
+				)
+				continue
+			}
+			cronspec := c.nextCronspec()
+			if cronspec == "" {
+				continue
+			}
+			entryID, err := mgr.s.Register(cronspec, c.Task, c.Opts...)
+			if err != nil {
+				mgr.s.logger.Errorf("Failed to register periodic task: cronspec=%q task=%q err=%v",
+					cronspec, c.Task.Type(), err)
+				continue
+			}
+			identities.nextCronspec = cronspec
+			identities.entryID = entryID
+			mgr.m[c.hash()] = identities
+			mgr.s.logger.Infof("Successfully registered periodic task: cronspec=%q task=%q, entryID=%s",
+				cronspec, c.Task.Type(), entryID)
+		}
+	}
+}
+
 func (mgr *IcsTaskManager) sync() {
 	configs, err := mgr.p.GetConfigs()
 	if err != nil {
@@ -323,7 +357,9 @@ func (mgr *IcsTaskManager) sync() {
 	// Diff and only register/unregister the newly added/removed entries.
 	removed := mgr.diffRemoved(configs)
 	added := mgr.diffAdded(configs)
+	updated := mgr.diffUpdated(configs)
 	mgr.remove(removed)
+	mgr.update(updated)
 	mgr.add(added)
 }
 
@@ -354,4 +390,16 @@ func (mgr *IcsTaskManager) diffAdded(configs []*IcsTaskConfig) []*IcsTaskConfig 
 		}
 	}
 	return added
+}
+
+func (mgr *IcsTaskManager) diffUpdated(configs []*IcsTaskConfig) []*IcsTaskConfig {
+	var updated []*IcsTaskConfig
+	for _, c := range configs {
+		if identities, found := mgr.m[c.hash()]; found {
+			if identities.nextCronspec != c.nextCronspec() {
+				updated = append(updated, c)
+			}
+		}
+	}
+	return updated
 }
