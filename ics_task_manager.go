@@ -89,7 +89,17 @@ func (c *IcsTaskConfig) hash() string {
 	h := sha256.New()
 	_, _ = h.Write([]byte(c.Task.Type()))
 	h.Write(c.Task.Payload())
-	opts := stringifyOptions(c.Opts)
+	var validateOptions []Option
+	for _, opt := range c.Opts {
+		switch opt.(type) {
+		case taskIDOption:
+			continue
+		default:
+			validateOptions = append(validateOptions, opt)
+		}
+	}
+
+	opts := stringifyOptions(validateOptions)
 	sort.Strings(opts)
 
 	if c.Event.RRule != nil {
